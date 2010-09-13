@@ -23,6 +23,7 @@ import android.content.BroadcastReceiver;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Bundle;
+import android.util.Slog;
 
 import java.io.File;
 
@@ -35,7 +36,10 @@ public class MediaScannerReceiver extends BroadcastReceiver
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         Uri uri = intent.getData();
-        String externalStoragePath = Environment.getExternalStorageDirectory().getPath();
+        //String externalStoragePath = Environment.getExternalStorageDirectory().getPath();
+        String externalSDStoragePath = Environment.getExternalSDStorageDirectory().getPath();
+        String externalUDiskStoragePath = Environment.getExternalUDiskStorageDirectory().getPath();
+        String externalExtSDStoragePath = Environment.getExternalExtSDStorageDirectory().getPath();
 
         if (action.equals(Intent.ACTION_BOOT_COMPLETED)) {
             // scan internal storage
@@ -44,12 +48,28 @@ public class MediaScannerReceiver extends BroadcastReceiver
             if (uri.getScheme().equals("file")) {
                 // handle intents related to external storage
                 String path = uri.getPath();
-                if (action.equals(Intent.ACTION_MEDIA_MOUNTED) && 
-                        externalStoragePath.equals(path)) {
-                    scan(context, MediaProvider.EXTERNAL_VOLUME);
+                if (action.equals(Intent.ACTION_MEDIA_MOUNTED)) {
+                    if (externalSDStoragePath.equals(path))
+                        scan(context, MediaProvider.EXTERNAL_VOLUME_SD);
+                    else if (externalUDiskStoragePath.equals(path))
+                        scan(context, MediaProvider.EXTERNAL_VOLUME_UDISK);
+                    else if (externalExtSDStoragePath.equals(path))
+                        scan(context, MediaProvider.EXTERNAL_VOLUME_EXTSD);
+                    else
+                        Slog.w(TAG, "unknown volume path " + path);
                 } else if (action.equals(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE) &&
-                        path != null && path.startsWith(externalStoragePath + "/")) {
+                    path != null && (path.startsWith(externalSDStoragePath + "/") || path.startsWith(externalExtSDStoragePath + "/") || path.startsWith(externalUDiskStoragePath + "/"))) {
                     scanFile(context, path);
+                } else if (action.equals(Intent.ACTION_MEDIA_EJECT)) {
+                    if (externalSDStoragePath.equals(path)) {
+                        scan(context, MediaProvider.EXTERNAL_VOLUME_SD);
+                    } else if(externalUDiskStoragePath.equals(path)) {
+                        scan(context, MediaProvider.EXTERNAL_VOLUME_UDISK);
+                    } else if(externalExtSDStoragePath.equals(path)) {
+                        scan(context, MediaProvider.EXTERNAL_VOLUME_EXTSD);
+                    } else {
+                        Slog.e(TAG, "Get MEDIA_REJECT for volume " + uri.toString() + " but don't know how to handle it");
+                    }
                 }
             }
         }
@@ -64,6 +84,7 @@ public class MediaScannerReceiver extends BroadcastReceiver
 
     private void scanFile(Context context, String path) {
         Bundle args = new Bundle();
+        Slog.i(TAG, "Start scanFile.");
         args.putString("filepath", path);
         context.startService(
                 new Intent(context, MediaScannerService.class).putExtras(args));

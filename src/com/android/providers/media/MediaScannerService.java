@@ -103,8 +103,10 @@ public class MediaScannerService extends Service implements Runnable
         sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_STARTED, uri));
         
         try {
-            if (volumeName.equals(MediaProvider.EXTERNAL_VOLUME)) {
-                 openDatabase(volumeName);    
+            if (volumeName.equals(MediaProvider.EXTERNAL_VOLUME_SD) ||
+                volumeName.equals(MediaProvider.EXTERNAL_VOLUME_UDISK) ||
+                volumeName.equals(MediaProvider.EXTERNAL_VOLUME_EXTSD)) {
+                openDatabase(MediaProvider.EXTERNAL_VOLUME);    
             }
 
             MediaScanner scanner = createMediaScanner();
@@ -190,12 +192,21 @@ public class MediaScannerService extends Service implements Runnable
    
     private Uri scanFile(String path, String mimeType) {
         String volumeName = MediaProvider.INTERNAL_VOLUME;
-        String externalStoragePath = Environment.getExternalStorageDirectory().getPath();
+        String externalStoragePathSD = Environment.getExternalSDStorageDirectory().getPath();
+        String externalStoragePathUDISK = Environment.getExternalUDiskStorageDirectory().getPath();
+        String externalStoragePathEXTSD = Environment.getExternalExtSDStorageDirectory().getPath();
 
-        if (path.startsWith(externalStoragePath)) {
-            volumeName = MediaProvider.EXTERNAL_VOLUME;
-            openDatabase(volumeName);
+        if (path.startsWith(externalStoragePathSD)) {
+            volumeName = MediaProvider.EXTERNAL_VOLUME_SD;
+            openDatabase(MediaProvider.EXTERNAL_VOLUME);
+        } else if (path.startsWith(externalStoragePathUDISK)) {
+            volumeName = MediaProvider.EXTERNAL_VOLUME_UDISK;
+            openDatabase(MediaProvider.EXTERNAL_VOLUME);
+        } else if (path.startsWith(externalStoragePathEXTSD)) {
+            volumeName = MediaProvider.EXTERNAL_VOLUME_EXTSD;
+            openDatabase(MediaProvider.EXTERNAL_VOLUME);
         }
+
         MediaScanner scanner = createMediaScanner();
         return scanner.scanSingleFile(path, volumeName, mimeType);
     }
@@ -235,12 +246,11 @@ public class MediaScannerService extends Service implements Runnable
         {
             Bundle arguments = (Bundle) msg.obj;
             String filePath = arguments.getString("filepath");
-            
             try {
                 if (filePath != null) {
                     IBinder binder = arguments.getIBinder("listener");
                     IMediaScannerListener listener = 
-                            (binder == null ? null : IMediaScannerListener.Stub.asInterface(binder));
+                        (binder == null ? null : IMediaScannerListener.Stub.asInterface(binder));
                     Uri uri = scanFile(filePath, arguments.getString("mimetype"));
                     if (listener != null) {
                         listener.scanCompleted(filePath, uri);
@@ -252,14 +262,26 @@ public class MediaScannerService extends Service implements Runnable
                     if (MediaProvider.INTERNAL_VOLUME.equals(volume)) {
                         // scan internal media storage
                         directories = new String[] {
-                                Environment.getRootDirectory() + "/media",
+                            Environment.getRootDirectory() + "/media",
                         };
                     }
-                    else if (MediaProvider.EXTERNAL_VOLUME.equals(volume)) {
-                        // scan external storage
+                    else if (MediaProvider.EXTERNAL_VOLUME_SD.equals(volume)) {
+                        // scan external SD storage
                         directories = new String[] {
-                                Environment.getExternalStorageDirectory().getPath(),
-                                };
+                            Environment.getExternalSDStorageDirectory().getPath(),
+                        };
+                    }
+                    else if (MediaProvider.EXTERNAL_VOLUME_UDISK.equals(volume)) {
+                        // scan external UDISK storage
+                        directories = new String[] {
+                            Environment.getExternalUDiskStorageDirectory().getPath(),
+                        };
+                    }
+                     else if (MediaProvider.EXTERNAL_VOLUME_EXTSD.equals(volume)) {
+                        // scan external EXTSD storage
+                        directories = new String[] {
+                            Environment.getExternalExtSDStorageDirectory().getPath(),
+                        };
                     }
                     
                     if (directories != null) {

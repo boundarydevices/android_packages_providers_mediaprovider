@@ -152,13 +152,35 @@ public class MediaProvider extends ContentProvider {
 
     private Uri mAlbumArtBaseUri = Uri.parse("content://media/external/audio/albumart");
 
+    private BroadcastReceiver mScanReceiver = new MediaScannerReceiver();
     private BroadcastReceiver mUnmountReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(Intent.ACTION_MEDIA_EJECT)) {
-                // Remove the external volume and then notify all cursors backed by
-                // data on that volume
-                detachVolume(Uri.parse("content://media/external"));
+                // Remove the external_sd/external_udisk volume and
+                // then notify all cursors backed by data on that volume
+                Uri uri = intent.getData();
+                String path = uri.getPath();
+                String state = Environment.getExternalSDStorageState();
+                boolean detachVolumeFlag = true;
+                if (Environment.MEDIA_MOUNTED.equals(state) ||
+                    Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+                    detachVolumeFlag = false;
+                }
+                state = Environment.getExternalUDiskStorageState();
+                if (Environment.MEDIA_MOUNTED.equals(state) ||
+                    Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+                    detachVolumeFlag = false;
+                }
+                state = Environment.getExternalExtSDStorageState();
+                if (Environment.MEDIA_MOUNTED.equals(state) ||
+                    Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+                    detachVolumeFlag = false;
+                }
+                if( detachVolumeFlag == true )
+                {
+                    detachVolume(Uri.parse("content://media/external"));
+                }
                 sFolderArtMap.clear();
                 MiniThumbFile.reset();
             }
@@ -302,11 +324,35 @@ public class MediaProvider extends ContentProvider {
         IntentFilter iFilter = new IntentFilter(Intent.ACTION_MEDIA_EJECT);
         iFilter.addDataScheme("file");
         getContext().registerReceiver(mUnmountReceiver, iFilter);
+        getContext().registerReceiver(mScanReceiver, iFilter);
 
         // open external database if external storage is mounted
-        String state = Environment.getExternalStorageState();
+        String state = Environment.getExternalSDStorageState();
+        boolean attachVolumeFlag = false;
         if (Environment.MEDIA_MOUNTED.equals(state) ||
                 Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+            attachVolumeFlag = true;
+        }
+        
+        state = Environment.getExternalUDiskStorageState();
+        if (Environment.MEDIA_MOUNTED.equals(state) ||
+                Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+            attachVolumeFlag = true;
+        }
+
+        state = Environment.getExternalExtSDStorageState();
+        if (Environment.MEDIA_MOUNTED.equals(state) ||
+                Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+                attachVolumeFlag = true;
+        }
+
+        state = Environment.getExternalStorageState();
+        if (Environment.MEDIA_MOUNTED.equals(state) ||
+                Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
+                attachVolumeFlag = true;
+        }
+
+        if (attachVolumeFlag) {
             attachVolume(EXTERNAL_VOLUME);
         }
 
@@ -1804,7 +1850,7 @@ public class MediaProvider extends ContentProvider {
         long rowId;
         int match = URI_MATCHER.match(uri);
 
-        // Log.v(TAG, "insertInternal: "+uri+", initValues="+initialValues);
+        //  Log.v(TAG, "insertInternal: "+uri+", initValues="+initialValues);
         // handle MEDIA_SCANNER before calling getDatabaseForUri()
         if (match == MEDIA_SCANNER) {
             mMediaScannerVolume = initialValues.getAsString(MediaStore.MEDIA_SCANNER_VOLUME);
@@ -3065,7 +3111,35 @@ public class MediaProvider extends ContentProvider {
     private DatabaseHelper getDatabaseForUri(Uri uri) {
         synchronized (mDatabases) {
             if (uri.getPathSegments().size() > 1) {
-                return mDatabases.get(uri.getPathSegments().get(0));
+                // For compatibility reason, map "content://media/external" to
+                // "content://media/external_sd" or "content://media/external_udisk"
+                // according to current sd/udisk status
+                if (EXTERNAL_VOLUME.equals(uri.getPathSegments().get(0))) {
+                    String stateSD = Environment.getExternalSDStorageState();
+                    String stateUDISK = Environment.getExternalUDiskStorageState();
+                    String stateEXTSD = Environment.getExternalExtSDStorageState();
+                    boolean ExternalMountedFlag =false;
+                    if (Environment.MEDIA_MOUNTED.equals(stateSD) ||
+                        Environment.MEDIA_MOUNTED_READ_ONLY.equals(stateSD)) {
+                        ExternalMountedFlag=true;
+                    } else if (Environment.MEDIA_MOUNTED.equals(stateUDISK) ||
+                        Environment.MEDIA_MOUNTED_READ_ONLY.equals(stateUDISK)) {
+                        ExternalMountedFlag=true;
+                    } else if (Environment.MEDIA_MOUNTED.equals(stateEXTSD) ||
+                        Environment.MEDIA_MOUNTED_READ_ONLY.equals(stateEXTSD)) {
+                        ExternalMountedFlag=true;
+                    }
+                    if(ExternalMountedFlag==true)
+                    {
+                        return mDatabases.get(EXTERNAL_VOLUME);
+                    }
+                    else {
+                        Log.i(TAG,"EXTERNAL_VOLUME return NULL");
+                        return null;
+                    }
+                } else {
+                    return mDatabases.get(uri.getPathSegments().get(0));
+                }
             }
         }
         return null;
@@ -3144,22 +3218,68 @@ public class MediaProvider extends ContentProvider {
                     }
                     db = new DatabaseHelper(context, dbFile.getName(), false);
                 }
+                mDatabases.put(EXTERNAL_VOLUME, db);
+            } else if (EXTERNAL_VOLUME_SD.equals(volume)) {
+                String path = Environment.getExternalSDStorageDirectory().getPath();
+                int volumeID = FileUtils.getFatVolumeId(path);
+                if (LOCAL_LOGV) Log.v(TAG, path + " volume ID: " + volumeID);
+
+                // generate database name based on volume ID
+                String dbName = "externalSD-" + Integer.toHexString(volumeID) + ".db";
+                db = new DatabaseHelper(getContext(), dbName, false);
+
+                mDatabases.put(EXTERNAL_VOLUME_SD, db);
+            } else if (EXTERNAL_VOLUME_UDISK.equals(volume)) {
+                String path = Environment.getExternalUDiskStorageDirectory().getPath();
+                int volumeID = FileUtils.getFatVolumeId(path);
+                if (LOCAL_LOGV) Log.v(TAG, path + " volume ID: " + volumeID);
+
+                // generate database name based on volume ID
+                String dbName = "externalUDISK-" + Integer.toHexString(volumeID) + ".db";
+                db = new DatabaseHelper(getContext(), dbName, false);
+
+                mDatabases.put(EXTERNAL_VOLUME_UDISK, db);
+             } else if (EXTERNAL_VOLUME_EXTSD.equals(volume)) {
+                String path = Environment.getExternalExtSDStorageDirectory().getPath();
+                int volumeID = FileUtils.getFatVolumeId(path);
+                if (LOCAL_LOGV) Log.v(TAG, path + " volume ID: " + volumeID);
+
+                // generate database name based on volume ID
+                String dbName = "externalEXTSD-" + Integer.toHexString(volumeID) + ".db";
+                db = new DatabaseHelper(getContext(), dbName, false);
+
+                mDatabases.put(EXTERNAL_VOLUME_EXTSD, db);
             } else {
                 throw new IllegalArgumentException("There is no volume named " + volume);
             }
 
-            mDatabases.put(volume, db);
-
             if (!db.mInternal) {
-                // clean up stray album art files: delete every file not in the database
-                File[] files = new File(
-                        Environment.getExternalStorageDirectory(),
+                File[] files;
+                if(EXTERNAL_VOLUME_SD.equals(volume) || EXTERNAL_VOLUME.equals(volume)){
+                    files = new File(
+                        Environment.getExternalSDStorageDirectory(),
                         ALBUM_THUMB_FOLDER).listFiles();
+                }
+                else if(EXTERNAL_VOLUME_UDISK.equals(volume)){
+                    files = new File(
+                        Environment.getExternalUDiskStorageDirectory(),
+                        ALBUM_THUMB_FOLDER).listFiles();
+                }
+                else if(EXTERNAL_VOLUME_EXTSD.equals(volume)){
+                    files = new File(
+                        Environment.getExternalExtSDStorageDirectory(),
+                        ALBUM_THUMB_FOLDER).listFiles();
+                }
+                else {
+                    files = null;
+                    throw new IllegalArgumentException("There is no volume named " + volume);
+                }
+
                 HashSet<String> fileSet = new HashSet();
                 for (int i = 0; files != null && i < files.length; i++) {
                     fileSet.add(files[i].getPath());
                 }
-
+  
                 Cursor cursor = query(MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
                         new String[] { MediaStore.Audio.Albums.ALBUM_ART }, null, null, null);
                 try {
@@ -3198,9 +3318,10 @@ public class MediaProvider extends ContentProvider {
 
         String volume = uri.getPathSegments().get(0);
         if (INTERNAL_VOLUME.equals(volume)) {
-            throw new UnsupportedOperationException(
-                    "Deleting the internal volume is not allowed");
-        } else if (!EXTERNAL_VOLUME.equals(volume)) {
+        // To support UMS for internal storage, we allow mount/unmount internal storage
+        //    throw new UnsupportedOperationException(
+        //            "Deleting the internal volume is not allowed");
+        } else if (!EXTERNAL_VOLUME.equals(volume) && !EXTERNAL_VOLUME_SD.equals(volume) && !EXTERNAL_VOLUME_UDISK.equals(volume) && !EXTERNAL_VOLUME_EXTSD.equals(volume) ){
             throw new IllegalArgumentException(
                     "There is no volume named " + volume);
         }
@@ -3250,6 +3371,9 @@ public class MediaProvider extends ContentProvider {
 
     static final String INTERNAL_VOLUME = "internal";
     static final String EXTERNAL_VOLUME = "external";
+    static final String EXTERNAL_VOLUME_SD 	= "external_sd";
+    static final String EXTERNAL_VOLUME_UDISK 	= "external_udisk";
+    static final String EXTERNAL_VOLUME_EXTSD 	= "external_extsd";
     static final String ALBUM_THUMB_FOLDER = "Android/data/com.android.providers.media/albumthumbs";
 
     // path for writing contents of in memory temp database
