@@ -3168,6 +3168,7 @@ public class MediaProvider extends ContentProvider {
             DatabaseHelper db;
             if (INTERNAL_VOLUME.equals(volume)) {
                 db = new DatabaseHelper(context, INTERNAL_DATABASE_NAME, true);
+		mDatabases.put(INTERNAL_VOLUME, db);
             } else if (EXTERNAL_VOLUME.equals(volume)) {
                 if (Environment.isExternalStorageRemovable()) {
                     String path = Environment.getExternalStorageDirectory().getPath();
