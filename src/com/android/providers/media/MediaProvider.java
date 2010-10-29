@@ -30,6 +30,7 @@ import android.content.IntentFilter;
 import android.content.OperationApplicationException;
 import android.content.UriMatcher;
 import android.database.Cursor;
+import android.database.MergeCursor;
 import android.database.DatabaseUtils;
 import android.database.MatrixCursor;
 import android.database.SQLException;
@@ -161,26 +162,17 @@ public class MediaProvider extends ContentProvider {
                 // then notify all cursors backed by data on that volume
                 Uri uri = intent.getData();
                 String path = uri.getPath();
-                String state = Environment.getExternalSDStorageState();
-                boolean detachVolumeFlag = true;
-                if (Environment.MEDIA_MOUNTED.equals(state) ||
-                    Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-                    detachVolumeFlag = false;
-                }
-                state = Environment.getExternalUDiskStorageState();
-                if (Environment.MEDIA_MOUNTED.equals(state) ||
-                    Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-                    detachVolumeFlag = false;
-                }
-                state = Environment.getExternalExtSDStorageState();
-                if (Environment.MEDIA_MOUNTED.equals(state) ||
-                    Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-                    detachVolumeFlag = false;
-                }
-                if( detachVolumeFlag == true )
-                {
+
+                if (path.equals(Environment.getExternalSDStorageDirectory().getPath()))
+                    detachVolume(Uri.parse("content://media/external_sd"));
+                else if (path.equals(Environment.getExternalExtSDStorageDirectory().getPath()))
+                    detachVolume(Uri.parse("content://media/external_extsd"));
+                else if (path.equals(Environment.getExternalUDiskStorageDirectory().getPath()))
+                    detachVolume(Uri.parse("content://media/external_udisk"));
+
+                if (path.equals(Environment.getExternalStorageDirectory().getPath()))
                     detachVolume(Uri.parse("content://media/external"));
-                }
+                
                 sFolderArtMap.clear();
                 MiniThumbFile.reset();
             }
@@ -246,7 +238,7 @@ public class MediaProvider extends ContentProvider {
             String[] databases = mContext.databaseList();
             int count = databases.length;
             int limit = MAX_EXTERNAL_DATABASES;
-
+            
             // delete external databases that have not been used in the past two months
             long twoMonthsAgo = now - OBSOLETE_DATABASE_DB;
             for (int i = 0; i < databases.length; i++) {
@@ -262,7 +254,7 @@ public class MediaProvider extends ContentProvider {
                 } else {
                     long time = other.lastModified();
                     if (time < twoMonthsAgo) {
-                        if (LOCAL_LOGV) Log.v(TAG, "Deleting old database " + databases[i]);
+                        if (LOCAL_LOGV) Log.v(TAG, "Deleting twoMonthsAgo old database " + databases[i]);
                         mContext.deleteDatabase(databases[i]);
                         databases[i] = null;
                         count--;
@@ -273,6 +265,7 @@ public class MediaProvider extends ContentProvider {
             // delete least recently used databases until
             // we are no longer over the limit
             while (count > limit) {
+                if (LOCAL_LOGV) Log.v(TAG, String.format("count: %d, limit:%d.", count, limit));
                 int lruIndex = -1;
                 long lruTime = 0;
 
@@ -328,31 +321,27 @@ public class MediaProvider extends ContentProvider {
 
         // open external database if external storage is mounted
         String state = Environment.getExternalSDStorageState();
-        boolean attachVolumeFlag = false;
+        
         if (Environment.MEDIA_MOUNTED.equals(state) ||
                 Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-            attachVolumeFlag = true;
+            attachVolume(EXTERNAL_VOLUME_SD);
         }
         
         state = Environment.getExternalUDiskStorageState();
         if (Environment.MEDIA_MOUNTED.equals(state) ||
                 Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-            attachVolumeFlag = true;
+            attachVolume(EXTERNAL_VOLUME_UDISK);
         }
 
         state = Environment.getExternalExtSDStorageState();
         if (Environment.MEDIA_MOUNTED.equals(state) ||
                 Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-                attachVolumeFlag = true;
+            attachVolume(EXTERNAL_VOLUME_EXTSD);
         }
 
         state = Environment.getExternalStorageState();
         if (Environment.MEDIA_MOUNTED.equals(state) ||
                 Environment.MEDIA_MOUNTED_READ_ONLY.equals(state)) {
-                attachVolumeFlag = true;
-        }
-
-        if (attachVolumeFlag) {
             attachVolume(EXTERNAL_VOLUME);
         }
 
@@ -419,6 +408,7 @@ public class MediaProvider extends ContentProvider {
     private static void updateDatabase(SQLiteDatabase db, boolean internal,
             int fromVersion, int toVersion) {
 
+        if (LOCAL_LOGV) Log.v(TAG, "The database path is " + db.getPath());
         // sanity checks
         if (toVersion != DATABASE_VERSION) {
             Log.e(TAG, "Illegal update request. Got " + toVersion + ", expected " +
@@ -1260,6 +1250,7 @@ public class MediaProvider extends ContentProvider {
 
     private boolean queryThumbnail(SQLiteQueryBuilder qb, Uri uri, String table,
             String column, boolean hasThumbnailId) {
+        if (LOCAL_LOGV) Log.v(TAG, String.format("queryThumbnail! uri:%s.", uri.toString()));
         qb.setTables(table);
         if (hasThumbnailId) {
             // For uri dispatched to this method, the 4th path segment is always
@@ -1331,7 +1322,9 @@ public class MediaProvider extends ContentProvider {
             String[] selectionArgs, String sort) {
         int table = URI_MATCHER.match(uri);
 
-        // Log.v(TAG, "query: uri="+uri+", selection="+selection);
+         if (LOCAL_LOGV) Log.v(TAG, String.format("query: uri= %s, selection = %s, table = %d.", uri, selection,  table));
+         if (selectionArgs != null)
+            Log.v(TAG, selectionArgs[0]);
         // handle MEDIA_SCANNER before calling getDatabaseForUri()
         if (table == MEDIA_SCANNER) {
             if (mMediaScannerVolume == null) {
@@ -1354,10 +1347,12 @@ public class MediaProvider extends ContentProvider {
         }
 
         String groupBy = null;
+
         DatabaseHelper database = getDatabaseForUri(uri);
         if (database == null) {
             return null;
         }
+
         SQLiteDatabase db = database.getReadableDatabase();
         SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
         String limit = uri.getQueryParameter("limit");
@@ -1621,22 +1616,63 @@ public class MediaProvider extends ContentProvider {
                 // fall through
             case AUDIO_SEARCH_FANCY:
             case AUDIO_SEARCH_BASIC:
-                return doAudioSearch(db, qb, uri, projectionIn, selection, selectionArgs, sort,
+                Cursor c[] = {null, null, null};
+                c[0] = doAudioSearch(db, qb, uri, projectionIn, selection, selectionArgs, sort,
                         table, limit);
+
+                if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+                {
+                    if (mDatabases.get(EXTERNAL_VOLUME_EXTSD)!= null)
+                    {
+                        db =  mDatabases.get(EXTERNAL_VOLUME_EXTSD).getReadableDatabase();
+                        c[1] = doAudioSearch(db, qb, uri, projectionIn, selection, 
+                            selectionArgs, sort,table, limit);
+                    }
+                    
+                    if (mDatabases.get(EXTERNAL_VOLUME_UDISK)!= null)
+                    {
+                        db =  mDatabases.get(EXTERNAL_VOLUME_UDISK).getReadableDatabase();
+                        c[2] = doAudioSearch(db, qb, uri, projectionIn, selection,
+                            selectionArgs, sort,table, limit);
+                    }
+                }
+                Cursor cMerge = new MergeCursor(c);                
+
+                return cMerge;
 
             default:
                 throw new IllegalStateException("Unknown URL: " + uri.toString());
         }
 
-        // Log.v(TAG, "query = "+ qb.buildQuery(projectionIn, selection, selectionArgs, groupBy, null, sort, limit));
-        Cursor c = qb.query(db, projectionIn, selection,
+        if (LOCAL_LOGV) Log.v(TAG, "query = "+ qb.buildQuery(projectionIn, selection, selectionArgs, groupBy, null, sort, limit));
+        Cursor c[] = {null, null, null};
+        c[0] = qb.query(db, projectionIn, selection,
                 selectionArgs, groupBy, null, sort, limit);
-
-        if (c != null) {
-            c.setNotificationUri(getContext().getContentResolver(), uri);
+        if (c[0] != null) {
+            c[0].setNotificationUri(getContext().getContentResolver(), uri);
         }
 
-        return c;
+        if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+        {
+            if (mDatabases.get(EXTERNAL_VOLUME_EXTSD)!= null)
+            {
+                db =  mDatabases.get(EXTERNAL_VOLUME_EXTSD).getReadableDatabase();
+                c[1] = qb.query(db, projectionIn, selection,
+                    selectionArgs, groupBy, null, sort, limit);
+            }
+           
+            if (mDatabases.get(EXTERNAL_VOLUME_UDISK)!= null)
+            {
+                db =  mDatabases.get(EXTERNAL_VOLUME_UDISK).getReadableDatabase();
+                c[2] = qb.query(db, projectionIn, selection,
+                    selectionArgs, groupBy, null, sort, limit);
+            }
+        }
+
+        Cursor cMerge = new MergeCursor(c);
+
+        if (LOCAL_LOGV) Log.v(TAG, String.format("Find the place, size is %d.", cMerge.getCount()));
+        return cMerge;
     }
 
     private Cursor doAudioSearch(SQLiteDatabase db, SQLiteQueryBuilder qb,
@@ -1766,24 +1802,138 @@ public class MediaProvider extends ContentProvider {
         return values;
     }
 
+    /**
+     * Ensures there is a file in the _data column of values, if one isn't
+     * present a new file is created.
+     *
+     * @param initialValues the values passed to insert by the caller
+     * @return the new values
+     */
+    private ContentValues ensureFile(boolean internal, Uri uri, ContentValues initialValues,
+            String preferredExtension, String directoryName) {
+        ContentValues values;
+        String file = initialValues.getAsString("_data");
+        if (TextUtils.isEmpty(file)) {
+            file = generateFileName(internal, uri, preferredExtension, directoryName);
+            values = new ContentValues(initialValues);
+            values.put("_data", file);
+        } else {
+            values = initialValues;
+        }
+
+        if (!ensureFileExists(file)) {
+            throw new IllegalStateException("Unable to create new file: " + file);
+        }
+        return values;
+    }
+
     @Override
     public int bulkInsert(Uri uri, ContentValues values[]) {
         int match = URI_MATCHER.match(uri);
+
+        if (LOCAL_LOGV) Log.v(TAG, String.format("bulkInsert,uri:%s,match:%d.", uri.toString(), match));
+
         if (match == VOLUMES) {
             return super.bulkInsert(uri, values);
         }
+
         DatabaseHelper database = getDatabaseForUri(uri);
-        if (database == null) {
+        DatabaseHelper database_sd = mDatabases.get(EXTERNAL_VOLUME_SD);
+        DatabaseHelper database_extsd = mDatabases.get(EXTERNAL_VOLUME_EXTSD);
+        DatabaseHelper database_udisk = mDatabases.get(EXTERNAL_VOLUME_UDISK);
+        if ((database == null) || ((database_sd == null) && (database_extsd == null) && (database_udisk == null))) {
             throw new UnsupportedOperationException(
                     "Unknown URI: " + uri);
         }
-        SQLiteDatabase db = database.getWritableDatabase();
+
+        SQLiteDatabase db_sd = null;
+        SQLiteDatabase db_extsd = null;
+        SQLiteDatabase db_udisk = null;
+        if (database_sd != null)
+            db_sd = database_sd.getWritableDatabase();
+        if (database_extsd != null)
+            db_extsd = database_extsd.getWritableDatabase();
+        if (database_udisk != null)
+            db_udisk = database_udisk.getWritableDatabase();
 
         if (match == AUDIO_PLAYLISTS_ID || match == AUDIO_PLAYLISTS_ID_MEMBERS) {
-            return playlistBulkInsert(db, uri, values);
+            ContentValues values_sd[] = null;
+            ContentValues values_extsd[] = null;
+            ContentValues values_udisk[] = null;
+            int index_sd = 0;
+            int index_extsd = 0;
+            int index_udisk = 0;
+
+            if (LOCAL_LOGV) Log.v(TAG, String.format("length is %d.", values.length));
+            
+            int total = 0;
+            int len = values.length;
+            for (int i = 0; i < len; i++) {
+                long audioid = ((Number) values[i].get(
+                        MediaStore.Audio.Playlists.Members.AUDIO_ID)).longValue();
+                if ((audioid >> 16) == 0)
+                {
+                    index_sd ++;
+                }
+                else if ((audioid >> 16) == 1)
+                {
+                    index_extsd ++;
+                }
+                else if ((audioid >> 16) == 2)
+                {
+                    index_udisk ++;
+                }
+            }
+
+            if (LOCAL_LOGV) Log.v(TAG, String.format("index_sd:%d,index_extsd:%d,index_udisk:%d.",index_sd, index_extsd, index_udisk));
+
+            if (index_sd > 0)
+                values_sd = new ContentValues[index_sd];
+            if (index_extsd > 0)
+                values_extsd = new ContentValues[index_extsd];
+            if (index_udisk > 0)
+                values_udisk = new ContentValues[index_udisk];
+            index_sd = 0;
+            index_extsd = 0;
+            index_udisk = 0;
+
+            for (int i = 0; i < len; i++) {
+                long audioid = ((Number) values[i].get(
+                        MediaStore.Audio.Playlists.Members.AUDIO_ID)).longValue();
+                if ((audioid >> 16) == 0)
+                {
+                    values_sd[index_sd] = values[i];
+                    index_sd ++;
+                }
+                else if ((audioid >> 16) == 1)
+                {
+                    values_extsd[index_extsd] = values[i];
+                    index_extsd ++;
+                }
+                else if ((audioid >> 16) == 2)
+                {
+                    values_udisk[index_udisk] = values[i];
+                    index_udisk ++;
+                }
+            } 
+
+            if ((db_sd != null) && (index_sd != 0))
+            {
+                total += playlistBulkInsert(db_sd, uri, values_sd);
+            }
+            if ((db_extsd != null) && (index_extsd != 0))
+            {
+                total += playlistBulkInsert(db_extsd, uri, values_extsd);
+            }
+            if ((db_udisk != null) && (index_udisk != 0))
+            {
+                total += playlistBulkInsert(db_udisk, uri, values_udisk);
+            }        
+
+            return total;
         }
 
-        db.beginTransaction();
+        db_sd.beginTransaction();
         int numInserted = 0;
         try {
             int len = values.length;
@@ -1791,9 +1941,9 @@ public class MediaProvider extends ContentProvider {
                 insertInternal(uri, values[i]);
             }
             numInserted = len;
-            db.setTransactionSuccessful();
+            db_sd.setTransactionSuccessful();
         } finally {
-            db.endTransaction();
+            db_sd.endTransaction();
         }
         getContext().getContentResolver().notifyChange(uri, null);
         return numInserted;
@@ -1802,8 +1952,10 @@ public class MediaProvider extends ContentProvider {
     @Override
     public Uri insert(Uri uri, ContentValues initialValues)
     {
+        if (LOCAL_LOGV) Log.v(TAG, String.format("Insert uri:%s, value: %s", uri.toString(), initialValues.toString()));
         Uri newUri = insertInternal(uri, initialValues);
         if (newUri != null) {
+            if (LOCAL_LOGV) Log.v(TAG, ".notifyChange" + uri.toString());
             getContext().getContentResolver().notifyChange(uri, null);
         }
         return newUri;
@@ -1850,9 +2002,10 @@ public class MediaProvider extends ContentProvider {
         long rowId;
         int match = URI_MATCHER.match(uri);
 
-        //  Log.v(TAG, "insertInternal: "+uri+", initValues="+initialValues);
+        if (LOCAL_LOGV) Log.v(TAG, "insertInternal: "+uri+", initValues="+initialValues);
         // handle MEDIA_SCANNER before calling getDatabaseForUri()
         if (match == MEDIA_SCANNER) {
+            if (LOCAL_LOGV) Log.v(TAG, "insert MEDIA_SCANNER!");
             mMediaScannerVolume = initialValues.getAsString(MediaStore.MEDIA_SCANNER_VOLUME);
             return MediaStore.getMediaScannerUri();
         }
@@ -1869,9 +2022,10 @@ public class MediaProvider extends ContentProvider {
             initialValues = new ContentValues();
         }
 
+        if (LOCAL_LOGV) Log.v(TAG, String.format("insert match is %d.", match));
         switch (match) {
             case IMAGES_MEDIA: {
-                ContentValues values = ensureFile(database.mInternal, initialValues, ".jpg", "DCIM/Camera");
+                ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".jpg", "DCIM/Camera");
 
                 values.put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000);
                 String data = values.getAsString(MediaColumns.DATA);
@@ -1880,11 +2034,43 @@ public class MediaProvider extends ContentProvider {
                 }
                 computeBucketValues(data, values);
                 computeTakenTime(values);
-                rowId = db.insert("images", "name", values);
+                Cursor cr = db.query("images", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+                
+                //Change the first item id
+                rowId = 0; 
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1); 
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("images", "name", values);
+                    }    
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("images", "name", values);
+                    }
+                    else
+                        rowId = db.insert("images", "name", values);
+                }
+                else
+                    rowId = db.insert("images", "name", values);
 
                 if (rowId > 0) {
-                    newUri = ContentUris.withAppendedId(
-                            Images.Media.getContentUri(uri.getPathSegments().get(0)), rowId);
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+                        newUri = ContentUris.withAppendedId(
+                                Images.Media.getContentUri(EXTERNAL_VOLUME_SD), rowId);
+                    else
+                        newUri = ContentUris.withAppendedId(
+                                Images.Media.getContentUri(uri.getPathSegments().get(0)), rowId);
                     requestMediaThumbnail(data, newUri, MediaThumbRequest.PRIORITY_NORMAL, 0);
                 }
                 break;
@@ -1892,8 +2078,11 @@ public class MediaProvider extends ContentProvider {
 
             // This will be triggered by requestMediaThumbnail (see getThumbnailUri)
             case IMAGES_THUMBNAILS: {
-                ContentValues values = ensureFile(database.mInternal, initialValues, ".jpg",
+                ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".jpg",
                         "DCIM/.thumbnails");
+                //use image_id as thumbnial _id
+                values.put("_id", values.getAsLong("image_id"));
+                
                 rowId = db.insert("thumbnails", "name", values);
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Images.Thumbnails.
@@ -1904,8 +2093,11 @@ public class MediaProvider extends ContentProvider {
 
             // This is currently only used by MICRO_KIND video thumbnail (see getThumbnailUri)
             case VIDEO_THUMBNAILS: {
-                ContentValues values = ensureFile(database.mInternal, initialValues, ".jpg",
+                ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".jpg",
                         "DCIM/.thumbnails");
+
+                //use video_id as _id
+                values.put("_id", values.getAsLong("video_id"));
                 rowId = db.insert("videothumbnails", "name", values);
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Video.Thumbnails.
@@ -1983,7 +2175,36 @@ public class MediaProvider extends ContentProvider {
                 computeDisplayName(values.getAsString("_data"), values);
                 values.put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000);
 
-                rowId = db.insert("audio_meta", "duration", values);
+                //change the first inset id
+                Cursor cr = db.query("audio_meta", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+                
+                rowId = 0; 
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1); 
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_meta", "duration", values);
+                    }    
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_meta", "duration", values);
+                    }
+                    else
+                        rowId = db.insert("audio_meta", "duration", values);
+                }
+                else
+                    rowId = db.insert("audio_meta", "duration", values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Audio.Media.getContentUri(uri.getPathSegments().get(0)), rowId);
                 }
@@ -1994,7 +2215,37 @@ public class MediaProvider extends ContentProvider {
                 Long audioId = Long.parseLong(uri.getPathSegments().get(2));
                 ContentValues values = new ContentValues(initialValues);
                 values.put(Audio.Genres.Members.AUDIO_ID, audioId);
-                rowId = db.insert("audio_genres_map", "genre_id", values);
+
+                //change the first insert id
+                Cursor cr = db.query("audio_genres_map", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+                
+                rowId = 0; 
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1); 
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_genres_map", "genre_id", values);
+                    }    
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_genres_map", "genre_id", values);
+                    }
+                    else
+                        rowId = db.insert("audio_genres_map", "genre_id", values);
+                }
+                else
+                    rowId = db.insert("audio_genres_map", "genre_id", values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(uri, rowId);
                 }
@@ -2005,8 +2256,41 @@ public class MediaProvider extends ContentProvider {
                 Long audioId = Long.parseLong(uri.getPathSegments().get(2));
                 ContentValues values = new ContentValues(initialValues);
                 values.put(Audio.Playlists.Members.AUDIO_ID, audioId);
-                rowId = db.insert("audio_playlists_map", "playlist_id",
+
+                //change the first insert id
+                Cursor cr = db.query("audio_playlists_map", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                rowId = 0;
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_playlists_map", "playlist_id",
+                            values);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_playlists_map", "playlist_id",
+                            values);
+                    }
+                    else
+                        rowId = db.insert("audio_playlists_map", "playlist_id",
+                            values);
+                }
+                else
+                    rowId = db.insert("audio_playlists_map", "playlist_id",
                         values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(uri, rowId);
                 }
@@ -2014,7 +2298,37 @@ public class MediaProvider extends ContentProvider {
             }
 
             case AUDIO_GENRES: {
-                rowId = db.insert("audio_genres", "audio_id", initialValues);
+
+                //change the first insert id
+                Cursor cr = db.query("audio_genres", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                rowId = 0;
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        initialValues.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_genres", "audio_id", initialValues);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        initialValues.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_genres", "audio_id", initialValues);
+                    }
+                    else
+                        rowId = db.insert("audio_genres", "audio_id", initialValues);
+                }
+                else
+                    rowId = db.insert("audio_genres", "audio_id", initialValues);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Audio.Genres.getContentUri(uri.getPathSegments().get(0)), rowId);
                 }
@@ -2025,7 +2339,37 @@ public class MediaProvider extends ContentProvider {
                 Long genreId = Long.parseLong(uri.getPathSegments().get(3));
                 ContentValues values = new ContentValues(initialValues);
                 values.put(Audio.Genres.Members.GENRE_ID, genreId);
-                rowId = db.insert("audio_genres_map", "genre_id", values);
+
+                //change the first insert id
+                Cursor cr = db.query("audio_genres_map", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                rowId = 0;
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_genres_map", "genre_id", values);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_genres_map", "genre_id", values);
+                    }
+                    else
+                        rowId = db.insert("audio_genres_map", "genre_id", values);
+                }
+                else
+                   rowId = db.insert("audio_genres_map", "genre_id", values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(uri, rowId);
                 }
@@ -2035,7 +2379,8 @@ public class MediaProvider extends ContentProvider {
             case AUDIO_PLAYLISTS: {
                 ContentValues values = new ContentValues(initialValues);
                 values.put(MediaStore.Audio.Playlists.DATE_ADDED, System.currentTimeMillis() / 1000);
-                rowId = db.insert("audio_playlists", "name", initialValues);
+                rowId = db.insert("audio_playlists", "name", values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Audio.Playlists.getContentUri(uri.getPathSegments().get(0)), rowId);
                 }
@@ -2047,7 +2392,41 @@ public class MediaProvider extends ContentProvider {
                 Long playlistId = Long.parseLong(uri.getPathSegments().get(3));
                 ContentValues values = new ContentValues(initialValues);
                 values.put(Audio.Playlists.Members.PLAYLIST_ID, playlistId);
-                rowId = db.insert("audio_playlists_map", "playlist_id", values);
+
+                //change the first insert id
+                Cursor cr = db.query("audio_playlists_map", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                rowId = 0;
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_playlists_map", "playlist_id",
+                            values);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("audio_playlists_map", "playlist_id",
+                            values);
+                    }
+                    else
+                        rowId = db.insert("audio_playlists_map", "playlist_id",
+                            values);
+                }
+                else
+                    rowId = db.insert("audio_playlists_map", "playlist_id",
+                        values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(uri, rowId);
                 }
@@ -2055,16 +2434,49 @@ public class MediaProvider extends ContentProvider {
             }
 
             case VIDEO_MEDIA: {
-                ContentValues values = ensureFile(database.mInternal, initialValues, ".3gp", "video");
+                ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".3gp", "video");
                 String data = values.getAsString("_data");
                 computeDisplayName(data, values);
                 computeBucketValues(data, values);
                 values.put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000);
                 computeTakenTime(values);
-                rowId = db.insert("video", "artist", values);
+
+                Cursor cr = db.query("video", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+                
+                rowId = 0; 
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1); 
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("video", "name", values);
+                    }    
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("video", "name", values);
+                    }
+                    else
+                        rowId = db.insert("video", "name", values);
+                }
+                else
+                    rowId = db.insert("video", "name", values);
+
                 if (rowId > 0) {
-                    newUri = ContentUris.withAppendedId(Video.Media.getContentUri(
-                            uri.getPathSegments().get(0)), rowId);
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+                        newUri = ContentUris.withAppendedId(
+                                Video.Media.getContentUri(EXTERNAL_VOLUME_SD), rowId);
+                    else
+                        newUri = ContentUris.withAppendedId(
+                                Video.Media.getContentUri(uri.getPathSegments().get(0)), rowId);
                     requestMediaThumbnail(data, newUri, MediaThumbRequest.PRIORITY_NORMAL, 0);
                 }
                 break;
@@ -2076,12 +2488,42 @@ public class MediaProvider extends ContentProvider {
                 }
                 ContentValues values = null;
                 try {
-                    values = ensureFile(false, initialValues, "", ALBUM_THUMB_FOLDER);
+                    values = ensureFile(false, uri, initialValues, "", ALBUM_THUMB_FOLDER);
                 } catch (IllegalStateException ex) {
                     // probably no more room to store albumthumbs
                     values = initialValues;
                 }
-                rowId = db.insert("album_art", "_data", values);
+
+                //change the first insert id
+                Cursor cr = db.query("album_art", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                rowId = 0;
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        values.put("album_id", size);
+                        rowId = size;
+                        db.insert("album_art", "_data", values);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("album_id", size);
+                        rowId = size;
+                        db.insert("album_art", "_data", values);
+                    }
+                    else
+                        rowId = db.insert("album_art", "_data", values);
+                }
+                else
+                    rowId = db.insert("album_art", "_data", values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(uri, rowId);
                 }
@@ -2164,6 +2606,31 @@ public class MediaProvider extends ContentProvider {
                 + "/" + directoryName + "/" + name + preferredExtension;
         }
     }
+
+    private String generateFileName(boolean internal, Uri uri, String preferredExtension, String directoryName)
+    {
+        // create a random file
+        String name = String.valueOf(System.currentTimeMillis());
+
+        if (internal) {
+            throw new UnsupportedOperationException("Writing to internal storage is not supported.");
+//            return Environment.getDataDirectory()
+//                + "/" + directoryName + "/" + name + preferredExtension;
+        } else {
+            if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_SD))
+                return Environment.getExternalSDStorageDirectory()
+                    + "/" + directoryName + "/" + name + preferredExtension;
+            else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                return Environment.getExternalExtSDStorageDirectory()
+                    + "/" + directoryName + "/" + name + preferredExtension;
+            else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                return Environment.getExternalUDiskStorageDirectory()
+                    + "/" + directoryName + "/" + name + preferredExtension;
+            else
+                throw new UnsupportedOperationException("Writing to unknown storage is not supported.");
+        }
+    }
+
 
     private boolean ensureFileExists(String path) {
         File file = new File(path);
@@ -2338,7 +2805,22 @@ public class MediaProvider extends ContentProvider {
         }
 
         if (match != VOLUMES_ID) {
-            DatabaseHelper database = getDatabaseForUri(uri);
+            DatabaseHelper database = null;
+            if ((match == VIDEO_MEDIA_ID) || (match == VIDEO_THUMBNAILS_ID)
+                || (match == IMAGES_MEDIA_ID) || (match == IMAGES_THUMBNAILS_ID))
+            {
+                int id = Integer.parseInt(uri.getPathSegments().get(3));
+                id = (id >> 16);
+                if (id == 1)
+                    database = mDatabases.get(EXTERNAL_VOLUME_EXTSD);
+                else if (id == 2)
+                    database = mDatabases.get(EXTERNAL_VOLUME_UDISK);
+                else
+                    database = mDatabases.get(EXTERNAL_VOLUME_SD);
+            }
+            else
+                database = getDatabaseForUri(uri);
+
             if (database == null) {
                 throw new UnsupportedOperationException(
                         "Unknown URI: " + uri);
@@ -2358,6 +2840,7 @@ public class MediaProvider extends ContentProvider {
                                 sGetTableAndWhereParam.where, whereArgs);
                         break;
                 }
+                if (LOCAL_LOGV) Log.v(TAG, "delete uri:" + uri.toString());
                 getContext().getContentResolver().notifyChange(uri, null);
             }
         } else {
@@ -2372,7 +2855,7 @@ public class MediaProvider extends ContentProvider {
     public int update(Uri uri, ContentValues initialValues, String userWhere,
             String[] whereArgs) {
         int count;
-        // Log.v(TAG, "update for uri="+uri+", initValues="+initialValues);
+        Log.v(TAG, "update for uri="+uri+", initValues="+initialValues);
         int match = URI_MATCHER.match(uri);
         DatabaseHelper database = getDatabaseForUri(uri);
         if (database == null) {
@@ -3003,6 +3486,8 @@ public class MediaProvider extends ContentProvider {
         String [] selargs = { k };
         Cursor c = db.query(table, null, keyField + "=?", selargs, null, null, null);
 
+        if (LOCAL_LOGV) Log.v(TAG, String.format("The count is %d,%s.", c.getCount(), selargs));
+
         try {
             switch (c.getCount()) {
                 case 0: {
@@ -3010,7 +3495,38 @@ public class MediaProvider extends ContentProvider {
                         ContentValues otherValues = new ContentValues();
                         otherValues.put(keyField, k);
                         otherValues.put(nameField, rawName);
-                        rowId = db.insert(table, "duration", otherValues);
+
+                        rowId = 0;
+                        Cursor cur = db.query(table, null, null, null, null, null, null); 
+                        if (cur.getCount() == 0)
+                        {               
+                            //change the id
+                            if (srcuri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                            {
+                                if (isAlbum)
+                                    otherValues.put("album_id", ((1 << 16) + 1));
+                                else
+                                    otherValues.put("artist_id", ((1 << 16) + 1));
+                                db.insert(table, "duration", otherValues);
+                                rowId = ((1 << 16) + 1);
+                            }
+                            else if (srcuri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                            {
+                                if (isAlbum)
+                                    otherValues.put("album_id", ((1 << 17) + 1));
+                                else
+                                    otherValues.put("artist_id", ((1 << 17) + 1));
+                                db.insert(table, "duration", otherValues);
+                                rowId = ((1 << 17) + 1);
+                            }
+                            else
+                                rowId = db.insert(table, "duration", otherValues);
+                        }
+                        else
+                            rowId = db.insert(table, "duration", otherValues);
+                        
+                        cur.close();
+
                         if (path != null && isAlbum && ! isUnknown) {
                             // We just inserted a new album. Now create an album art thumbnail for it.
                             makeThumbAsync(db, path, rowId);
@@ -3112,34 +3628,16 @@ public class MediaProvider extends ContentProvider {
         synchronized (mDatabases) {
             if (uri.getPathSegments().size() > 1) {
                 // For compatibility reason, map "content://media/external" to
-                // "content://media/external_sd" or "content://media/external_udisk"
+                // "content://media/external_sd" or "content://media/external_udisk" or "content://edia/external_extsd"
                 // according to current sd/udisk status
-                if (EXTERNAL_VOLUME.equals(uri.getPathSegments().get(0))) {
-                    String stateSD = Environment.getExternalSDStorageState();
-                    String stateUDISK = Environment.getExternalUDiskStorageState();
-                    String stateEXTSD = Environment.getExternalExtSDStorageState();
-                    boolean ExternalMountedFlag =false;
-                    if (Environment.MEDIA_MOUNTED.equals(stateSD) ||
-                        Environment.MEDIA_MOUNTED_READ_ONLY.equals(stateSD)) {
-                        ExternalMountedFlag=true;
-                    } else if (Environment.MEDIA_MOUNTED.equals(stateUDISK) ||
-                        Environment.MEDIA_MOUNTED_READ_ONLY.equals(stateUDISK)) {
-                        ExternalMountedFlag=true;
-                    } else if (Environment.MEDIA_MOUNTED.equals(stateEXTSD) ||
-                        Environment.MEDIA_MOUNTED_READ_ONLY.equals(stateEXTSD)) {
-                        ExternalMountedFlag=true;
-                    }
-                    if(ExternalMountedFlag==true)
-                    {
-                        return mDatabases.get(EXTERNAL_VOLUME);
-                    }
-                    else {
-                        Log.i(TAG,"EXTERNAL_VOLUME return NULL");
-                        return null;
-                    }
-                } else {
-                    return mDatabases.get(uri.getPathSegments().get(0));
+                if (LOCAL_LOGV) Log.v(TAG, String.format("getDatabaseForUri %s: %s.", uri.toString(), uri.getPathSegments().get(0)));
+                if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+                {
+                    if (LOCAL_LOGV) Log.v(TAG, "Get external, return external_sd");
+                    return mDatabases.get(EXTERNAL_VOLUME_SD);
                 }
+                else
+                    return mDatabases.get(uri.getPathSegments().get(0));
             }
         }
         return null;
@@ -3280,9 +3778,17 @@ public class MediaProvider extends ContentProvider {
                 for (int i = 0; files != null && i < files.length; i++) {
                     fileSet.add(files[i].getPath());
                 }
-  
-                Cursor cursor = query(MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
-                        new String[] { MediaStore.Audio.Albums.ALBUM_ART }, null, null, null);
+                
+                Cursor cursor = null;
+                if(EXTERNAL_VOLUME_SD.equals(volume) || EXTERNAL_VOLUME.equals(volume))
+                    cursor = query(MediaStore.Audio.Albums.EXTERNAL_SD_CONTENT_URI,
+                            new String[] { MediaStore.Audio.Albums.ALBUM_ART }, null, null, null);
+                else if (EXTERNAL_VOLUME_EXTSD.equals(volume))
+                    cursor = query(MediaStore.Audio.Albums.EXTERNAL_EXTSD_CONTENT_URI,
+                            new String[] { MediaStore.Audio.Albums.ALBUM_ART }, null, null, null);
+                else if (EXTERNAL_VOLUME_UDISK.equals(volume))
+                    cursor = query(MediaStore.Audio.Albums.EXTERNAL_UDISK_CONTENT_URI,
+                            new String[] { MediaStore.Audio.Albums.ALBUM_ART }, null, null, null);
                 try {
                     while (cursor != null && cursor.moveToNext()) {
                         fileSet.remove(cursor.getString(0));
@@ -3342,7 +3848,7 @@ public class MediaProvider extends ContentProvider {
             mDatabases.remove(volume);
             database.close();
         }
-
+        
         getContext().getContentResolver().notifyChange(uri, null);
         if (LOCAL_LOGV) Log.v(TAG, "Detached volume: " + volume);
     }
@@ -3354,7 +3860,7 @@ public class MediaProvider extends ContentProvider {
     private static final String EXTERNAL_DATABASE_NAME = "external.db";
 
     // maximum number of cached external databases to keep
-    private static final int MAX_EXTERNAL_DATABASES = 3;
+    private static final int MAX_EXTERNAL_DATABASES = 6;
 
     // Delete databases that have not been used in two months
     // 60 days in milliseconds (1000 * 60 * 60 * 24 * 60)

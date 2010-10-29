@@ -93,8 +93,8 @@ class MediaThumbRequest {
         mIsVideo = "video".equals(uri.getPathSegments().get(1));
         mOrigId = ContentUris.parseId(uri);
         mThumbUri = mIsVideo
-                ? Video.Thumbnails.EXTERNAL_CONTENT_URI
-                : Images.Thumbnails.EXTERNAL_CONTENT_URI;
+                ? Video.Thumbnails.getContentUri(uri.getPathSegments().get(0))
+                : Images.Thumbnails.getContentUri(uri.getPathSegments().get(0));
         mOrigColumnName = mIsVideo
                 ? Video.Thumbnails.VIDEO_ID
                 : Images.Thumbnails.IMAGE_ID;

@@ -60,16 +60,6 @@ public class MediaScannerReceiver extends BroadcastReceiver
                 } else if (action.equals(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE) &&
                     path != null && (path.startsWith(externalSDStoragePath + "/") || path.startsWith(externalExtSDStoragePath + "/") || path.startsWith(externalUDiskStoragePath + "/"))) {
                     scanFile(context, path);
-                } else if (action.equals(Intent.ACTION_MEDIA_EJECT)) {
-                    if (externalSDStoragePath.equals(path)) {
-                        scan(context, MediaProvider.EXTERNAL_VOLUME_SD);
-                    } else if(externalUDiskStoragePath.equals(path)) {
-                        scan(context, MediaProvider.EXTERNAL_VOLUME_UDISK);
-                    } else if(externalExtSDStoragePath.equals(path)) {
-                        scan(context, MediaProvider.EXTERNAL_VOLUME_EXTSD);
-                    } else {
-                        Slog.e(TAG, "Get MEDIA_REJECT for volume " + uri.toString() + " but don't know how to handle it");
-                    }
                 }
             }
         }

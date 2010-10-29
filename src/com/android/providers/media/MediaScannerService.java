@@ -106,7 +106,7 @@ public class MediaScannerService extends Service implements Runnable
             if (volumeName.equals(MediaProvider.EXTERNAL_VOLUME_SD) ||
                 volumeName.equals(MediaProvider.EXTERNAL_VOLUME_UDISK) ||
                 volumeName.equals(MediaProvider.EXTERNAL_VOLUME_EXTSD)) {
-                openDatabase(MediaProvider.EXTERNAL_VOLUME);    
+                openDatabase(volumeName);    
             }
 
             MediaScanner scanner = createMediaScanner();
@@ -198,13 +198,13 @@ public class MediaScannerService extends Service implements Runnable
 
         if (path.startsWith(externalStoragePathSD)) {
             volumeName = MediaProvider.EXTERNAL_VOLUME_SD;
-            openDatabase(MediaProvider.EXTERNAL_VOLUME);
+            openDatabase(MediaProvider.EXTERNAL_VOLUME_SD);
         } else if (path.startsWith(externalStoragePathUDISK)) {
             volumeName = MediaProvider.EXTERNAL_VOLUME_UDISK;
-            openDatabase(MediaProvider.EXTERNAL_VOLUME);
+            openDatabase(MediaProvider.EXTERNAL_VOLUME_UDISK);
         } else if (path.startsWith(externalStoragePathEXTSD)) {
             volumeName = MediaProvider.EXTERNAL_VOLUME_EXTSD;
-            openDatabase(MediaProvider.EXTERNAL_VOLUME);
+            openDatabase(MediaProvider.EXTERNAL_VOLUME_EXTSD);
         }
 
         MediaScanner scanner = createMediaScanner();
@@ -258,7 +258,7 @@ public class MediaScannerService extends Service implements Runnable
                 } else {
                     String volume = arguments.getString("volume");
                     String[] directories = null;
-                    
+
                     if (MediaProvider.INTERNAL_VOLUME.equals(volume)) {
                         // scan internal media storage
                         directories = new String[] {
