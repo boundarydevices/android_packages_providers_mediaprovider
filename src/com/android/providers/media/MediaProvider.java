@@ -1668,7 +1668,6 @@ public class MediaProvider extends ContentProvider {
                     selectionArgs, groupBy, null, sort, limit);
             }
         }
-
         Cursor cMerge = new MergeCursor(c);
 
         if (LOCAL_LOGV) Log.v(TAG, String.format("Find the place, size is %d.", cMerge.getCount()));
@@ -2026,7 +2025,6 @@ public class MediaProvider extends ContentProvider {
         switch (match) {
             case IMAGES_MEDIA: {
                 ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".jpg", "DCIM/Camera");
-
                 values.put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000);
                 String data = values.getAsString(MediaColumns.DATA);
                 if (! values.containsKey(MediaColumns.DISPLAY_NAME)) {
@@ -2065,10 +2063,10 @@ public class MediaProvider extends ContentProvider {
                     rowId = db.insert("images", "name", values);
 
                 if (rowId > 0) {
-                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
-                        newUri = ContentUris.withAppendedId(
-                                Images.Media.getContentUri(EXTERNAL_VOLUME_SD), rowId);
-                    else
+                    //if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+                    //    newUri = ContentUris.withAppendedId(
+                    //            Images.Media.getContentUri(EXTERNAL_VOLUME_SD), rowId);
+                    //else
                         newUri = ContentUris.withAppendedId(
                                 Images.Media.getContentUri(uri.getPathSegments().get(0)), rowId);
                     requestMediaThumbnail(data, newUri, MediaThumbRequest.PRIORITY_NORMAL, 0);
@@ -2080,14 +2078,41 @@ public class MediaProvider extends ContentProvider {
             case IMAGES_THUMBNAILS: {
                 ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".jpg",
                         "DCIM/.thumbnails");
-                //use image_id as thumbnial _id
-                values.put("_id", values.getAsLong("image_id"));
-                
-                rowId = db.insert("thumbnails", "name", values);
+
+                //change the first item id
+                Cursor cr = db.query("thumbnails", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("thumbnails", "name", values);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("thumbnails", "name", values);
+                    }
+                    else
+                        rowId = db.insert("thumbnails", "name", values);
+                }
+                else
+                    rowId = db.insert("thumbnails", "name", values);                
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Images.Thumbnails.
                             getContentUri(uri.getPathSegments().get(0)), rowId);
                 }
+                
                 break;
             }
 
@@ -2096,9 +2121,35 @@ public class MediaProvider extends ContentProvider {
                 ContentValues values = ensureFile(database.mInternal, uri, initialValues, ".jpg",
                         "DCIM/.thumbnails");
 
-                //use video_id as _id
-                values.put("_id", values.getAsLong("video_id"));
-                rowId = db.insert("videothumbnails", "name", values);
+                //change the first item id
+                Cursor cr = db.query("videothumbnails", null, null, null, null, null, null);
+                int size = cr.getCount();
+                cr.close();
+
+                if (size == 0)
+                {
+                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 16) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("videothumbnails", "name", values);
+                    }
+                    else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_UDISK))
+                    {
+                        //for the minithum file offset is long
+                        size += ((1 << 17) + 1);
+                        values.put("_id", size);
+                        rowId = size;
+                        db.insert("videothumbnails", "name", values);
+                    }
+                    else
+                        rowId = db.insert("videothumbnails", "name", values);
+                }
+                else
+                    rowId = db.insert("videothumbnails", "name", values);
+
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Video.Thumbnails.
                             getContentUri(uri.getPathSegments().get(0)), rowId);
@@ -2298,6 +2349,8 @@ public class MediaProvider extends ContentProvider {
             }
 
             case AUDIO_GENRES: {
+                if (uri.getPathSegments().get(0).equals(INTERNAL_VOLUME))
+                    return null;
 
                 //change the first insert id
                 Cursor cr = db.query("audio_genres", null, null, null, null, null, null);
@@ -2336,6 +2389,9 @@ public class MediaProvider extends ContentProvider {
             }
 
             case AUDIO_GENRES_ID_MEMBERS: {
+                if (uri.getPathSegments().get(0).equals(INTERNAL_VOLUME))
+                    return null;
+
                 Long genreId = Long.parseLong(uri.getPathSegments().get(3));
                 ContentValues values = new ContentValues(initialValues);
                 values.put(Audio.Genres.Members.GENRE_ID, genreId);
@@ -2471,10 +2527,10 @@ public class MediaProvider extends ContentProvider {
                     rowId = db.insert("video", "name", values);
 
                 if (rowId > 0) {
-                    if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
-                        newUri = ContentUris.withAppendedId(
-                                Video.Media.getContentUri(EXTERNAL_VOLUME_SD), rowId);
-                    else
+                    //if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
+                    //    newUri = ContentUris.withAppendedId(
+                    //            Video.Media.getContentUri(EXTERNAL_VOLUME_SD), rowId);
+                    //else
                         newUri = ContentUris.withAppendedId(
                                 Video.Media.getContentUri(uri.getPathSegments().get(0)), rowId);
                     requestMediaThumbnail(data, newUri, MediaThumbRequest.PRIORITY_NORMAL, 0);
@@ -2617,7 +2673,7 @@ public class MediaProvider extends ContentProvider {
 //            return Environment.getDataDirectory()
 //                + "/" + directoryName + "/" + name + preferredExtension;
         } else {
-            if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_SD))
+            if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_SD) || uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME))
                 return Environment.getExternalSDStorageDirectory()
                     + "/" + directoryName + "/" + name + preferredExtension;
             else if (uri.getPathSegments().get(0).equals(EXTERNAL_VOLUME_EXTSD))
