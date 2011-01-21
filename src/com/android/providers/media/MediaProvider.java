@@ -2435,7 +2435,7 @@ public class MediaProvider extends ContentProvider {
             case AUDIO_PLAYLISTS: {
                 ContentValues values = new ContentValues(initialValues);
                 values.put(MediaStore.Audio.Playlists.DATE_ADDED, System.currentTimeMillis() / 1000);
-                rowId = db.insert("audio_playlists", "name", values);
+                rowId = db.insert("audio_playlists", "name", initialValues);
 
                 if (rowId > 0) {
                     newUri = ContentUris.withAppendedId(Audio.Playlists.getContentUri(uri.getPathSegments().get(0)), rowId);
