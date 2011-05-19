@@ -2876,7 +2876,29 @@ public class MediaProvider extends ContentProvider {
                     database = mDatabases.get(EXTERNAL_VOLUME_SD);
             }
             else
-                database = getDatabaseForUri(uri);
+            {
+                if (userWhere.startsWith("_id")) {
+                    //get id from the parameter
+                    int start = userWhere.indexOf("(");
+                    int end = userWhere.indexOf(")");
+                    String strId = userWhere.substring(start+1, end);
+                    try {
+                        int id = Integer.parseInt(strId);
+                        id = (id >> 16);
+                        if (id == 1)
+                            database = mDatabases.get(EXTERNAL_VOLUME_EXTSD);
+                        else if (id == 2)
+                            database = mDatabases.get(EXTERNAL_VOLUME_UDISK);
+                        else
+                            database = mDatabases.get(EXTERNAL_VOLUME_SD);
+                    }
+                    catch (Exception e) {
+                        database = getDatabaseForUri(uri);
+                    }
+                }
+                else
+                    database = getDatabaseForUri(uri);
+            }
 
             if (database == null) {
                 throw new UnsupportedOperationException(
