@@ -2602,8 +2602,23 @@ public class MediaProvider extends ContentProvider {
 
         // The operations array provides no overall information about the URI(s) being operated
         // on, so begin a transaction for ALL of the databases.
+        DatabaseHelper ehelper = null;    
+        if (operations != null) {
+            if (operations.size() > 0) {
+                Uri uri = operations.get(0).getUri();
+                if (uri != null)
+                    ehelper = getDatabaseForUri(uri);
+                else
+                    ehelper = mDatabases.get(EXTERNAL_VOLUME_SD);
+            }
+            else
+                return null;
+        }
+        else 
+            return null;
+        
         DatabaseHelper ihelper = getDatabaseForUri(MediaStore.Audio.Media.INTERNAL_CONTENT_URI);
-        DatabaseHelper ehelper = getDatabaseForUri(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI);
+        
         SQLiteDatabase idb = ihelper.getWritableDatabase();
         idb.beginTransaction();
         SQLiteDatabase edb = null;
