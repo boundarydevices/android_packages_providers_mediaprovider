@@ -2617,10 +2617,6 @@ public class MediaProvider extends ContentProvider {
         else 
             return null;
         
-        DatabaseHelper ihelper = getDatabaseForUri(MediaStore.Audio.Media.INTERNAL_CONTENT_URI);
-        
-        SQLiteDatabase idb = ihelper.getWritableDatabase();
-        idb.beginTransaction();
         SQLiteDatabase edb = null;
         if (ehelper != null) {
             edb = ehelper.getWritableDatabase();
@@ -2628,7 +2624,6 @@ public class MediaProvider extends ContentProvider {
         }
         try {
             ContentProviderResult[] result = super.applyBatch(operations);
-            idb.setTransactionSuccessful();
             if (edb != null) {
                 edb.setTransactionSuccessful();
             }
@@ -2639,7 +2634,6 @@ public class MediaProvider extends ContentProvider {
             res.notifyChange(Uri.parse("content://media/"), null);
             return result;
         } finally {
-            idb.endTransaction();
             if (edb != null) {
                 edb.endTransaction();
             }
