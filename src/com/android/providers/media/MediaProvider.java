@@ -2891,8 +2891,12 @@ public class MediaProvider extends ContentProvider {
                         //get id from the parameter
                         int start = userWhere.indexOf("(");
                         int end = userWhere.indexOf(")");
-                        String strId = userWhere.substring(start+1, end);
+                        if (end <= start) {
+                            start = userWhere.indexOf("=");
+                            end = userWhere.length() - 1;
+                        }
                         try {
+                            String strId = userWhere.substring(start+1, end);
                             int id = Integer.parseInt(strId);
                             id = (id >> 16);
                             if (id == 1)
