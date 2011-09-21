@@ -2858,7 +2858,7 @@ public class MediaProvider extends ContentProvider {
 
     @Override
     public int delete(Uri uri, String userWhere, String[] whereArgs) {
-        int count;
+        int count = 0;
         int match = URI_MATCHER.match(uri);
 
         // handle MEDIA_SCANNER before calling getDatabaseForUri()
@@ -2932,8 +2932,21 @@ public class MediaProvider extends ContentProvider {
                                 sGetTableAndWhereParam.where, whereArgs);
                         break;
                     default:
-                        count = db.delete(sGetTableAndWhereParam.table,
-                                sGetTableAndWhereParam.where, whereArgs);
+                        if (userWhere.startsWith("bucket_id")) {
+                            if (mDatabases.get(EXTERNAL_VOLUME_SD) != null)
+                                count += mDatabases.get(EXTERNAL_VOLUME_SD).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                                    sGetTableAndWhereParam.where, whereArgs);
+                            if (mDatabases.get(EXTERNAL_VOLUME_EXTSD) != null)
+                                count += mDatabases.get(EXTERNAL_VOLUME_EXTSD).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                                    sGetTableAndWhereParam.where, whereArgs);
+                            if (mDatabases.get(EXTERNAL_VOLUME_UDISK) != null)
+                                count += mDatabases.get(EXTERNAL_VOLUME_UDISK).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                                    sGetTableAndWhereParam.where, whereArgs);
+                        }
+                        else {
+                            count = db.delete(sGetTableAndWhereParam.table,
+                                    sGetTableAndWhereParam.where, whereArgs);
+                        }
                         break;
                 }
                 if (LOCAL_LOGV) Log.v(TAG, "delete uri:" + uri.toString());
