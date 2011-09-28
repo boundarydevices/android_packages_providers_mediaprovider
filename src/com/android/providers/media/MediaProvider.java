@@ -2932,16 +2932,22 @@ public class MediaProvider extends ContentProvider {
                                 sGetTableAndWhereParam.where, whereArgs);
                         break;
                     default:
-                        if (userWhere.startsWith("bucket_id")) {
-                            if (mDatabases.get(EXTERNAL_VOLUME_SD) != null)
-                                count += mDatabases.get(EXTERNAL_VOLUME_SD).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                        if (userWhere != null) {
+                            if (userWhere.startsWith("bucket_id")) {
+                                if (mDatabases.get(EXTERNAL_VOLUME_SD) != null)
+                                    count += mDatabases.get(EXTERNAL_VOLUME_SD).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                                        sGetTableAndWhereParam.where, whereArgs);
+                                if (mDatabases.get(EXTERNAL_VOLUME_EXTSD) != null)
+                                    count += mDatabases.get(EXTERNAL_VOLUME_EXTSD).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                                        sGetTableAndWhereParam.where, whereArgs);
+                                if (mDatabases.get(EXTERNAL_VOLUME_UDISK) != null)
+                                    count += mDatabases.get(EXTERNAL_VOLUME_UDISK).getWritableDatabase().delete(sGetTableAndWhereParam.table,
+                                        sGetTableAndWhereParam.where, whereArgs);
+                            }
+                            else {
+                                count = db.delete(sGetTableAndWhereParam.table,
                                     sGetTableAndWhereParam.where, whereArgs);
-                            if (mDatabases.get(EXTERNAL_VOLUME_EXTSD) != null)
-                                count += mDatabases.get(EXTERNAL_VOLUME_EXTSD).getWritableDatabase().delete(sGetTableAndWhereParam.table,
-                                    sGetTableAndWhereParam.where, whereArgs);
-                            if (mDatabases.get(EXTERNAL_VOLUME_UDISK) != null)
-                                count += mDatabases.get(EXTERNAL_VOLUME_UDISK).getWritableDatabase().delete(sGetTableAndWhereParam.table,
-                                    sGetTableAndWhereParam.where, whereArgs);
+                            }
                         }
                         else {
                             count = db.delete(sGetTableAndWhereParam.table,
