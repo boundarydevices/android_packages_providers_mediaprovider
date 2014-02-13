@@ -2766,9 +2766,7 @@ public class MediaProvider extends ContentProvider {
             values = initialValues;
         }
 
-        if (!ensureFileExists(file)) {
-            throw new IllegalStateException("Unable to create new file: " + file);
-        }
+        // we used to create the file here, but now defer this until openFile() is called
         return values;
     }
 
